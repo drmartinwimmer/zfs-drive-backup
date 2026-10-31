@@ -93,6 +93,19 @@ pub(crate) fn discover_and_mount_pool_with_runner<R: CommandRunner>(
     })
 }
 
+/// Exports the specified ZFS backup pool (`sudo zpool export <pool>`).
+pub fn export_pool(pool: &str) -> Result<(), PoolError> {
+    export_pool_with_runner(&ClapbackRunner::new(), pool)
+}
+
+pub(crate) fn export_pool_with_runner<R: CommandRunner>(
+    runner: &R,
+    pool: &str,
+) -> Result<(), PoolError> {
+    runner.run(&ZpoolCommand::export_pool(pool))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,5 +229,15 @@ mod tests {
             res,
             err(matches_pattern!(PoolError::NoBackupPoolFound { .. }))
         );
+    }
+
+    #[googletest::test]
+    fn export_pool_invokes_sudo_zpool_export() -> Result<()> {
+        let runner = MockRunner::default();
+        export_pool_with_runner(&runner, "backup-usb")?;
+        verify_that!(
+            runner.recorded_commands(),
+            elements_are![eq("sudo zpool export backup-usb")]
+        )
     }
 }

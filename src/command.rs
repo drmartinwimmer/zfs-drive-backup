@@ -51,6 +51,11 @@ pub(crate) enum ZpoolSubcommand {
         /// Target pool name to import, or `None` to list importable pools.
         pool: Option<String>,
     },
+    /// Export an imported ZFS storage pool (`zpool export <pool>`).
+    Export {
+        /// Name of the storage pool to export.
+        pool: String,
+    },
 }
 
 /// CLI command builder for `zpool` invocations.
@@ -95,6 +100,12 @@ impl ZpoolCommand {
             pool: Some(pool.into()),
         })
         .wrap_with(SudoCommand::new)
+    }
+
+    /// Builds `sudo zpool export <pool>` to export `pool`.
+    #[must_use]
+    pub(crate) fn export_pool(pool: impl Into<String>) -> SudoCommand<Self> {
+        Self::new(ZpoolSubcommand::Export { pool: pool.into() }).wrap_with(SudoCommand::new)
     }
 }
 
@@ -369,6 +380,10 @@ mod tests {
         expect_that!(
             ZpoolCommand::import_pool("backup").to_string(),
             eq("sudo zpool import -l backup")
+        );
+        expect_that!(
+            ZpoolCommand::export_pool("backup").to_string(),
+            eq("sudo zpool export backup")
         );
     }
 
