@@ -109,7 +109,7 @@ impl BackupConfig {
     }
 
     /// Validates that datasets, pools, and optional machine name are well-formed.
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    fn validate(&self) -> Result<(), ConfigError> {
         if self.datasets.is_empty() {
             return Err(ConfigError::EmptyDatasets);
         }
@@ -165,7 +165,7 @@ impl BackupConfig {
 
 /// Returns the default configuration file path in the user's configuration directory
 /// (e.g. `~/.config/zfs-drive-backup/config.json` on Linux).
-pub fn default_config_path() -> Result<PathBuf, ConfigError> {
+fn default_config_path() -> Result<PathBuf, ConfigError> {
     let proj_dirs = ProjectDirs::from(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME)
         .ok_or(ConfigError::NoConfigDir)?;
     Ok(proj_dirs
