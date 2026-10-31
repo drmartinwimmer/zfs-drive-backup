@@ -13,6 +13,11 @@
 
 - `pub enum CliError { Config(ConfigError) }` — _Errors that can occur while executing the CLI._
 - `pub enum ConfigError { NoConfigDir, Io { path: PathBuf, source: io :: Error }, Json(serde_json :: Error), EmptyDatasets, InvalidDataset(String), EmptyPools, InvalidPool(String), InvalidMachineName(String) }` — _Errors that can occur when locating, reading, or validating the backup configuration._
+- `pub enum PoolError { Command(CommandError), NoBackupPoolFound { configured: Vec < String >, imported: Vec < String >, importable: Vec < String > } }` — _Errors that can occur when discovering, importing, or exporting a ZFS backup pool._
+
+### Functions
+
+- `pub fn discover_and_mount_pool(configured_pools: & [String]) -> Result < String , PoolError >` — _Discovers a configured backup pool and imports/mounts it if not already imported._
 
 ### Methods
 
