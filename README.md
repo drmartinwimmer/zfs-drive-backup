@@ -11,10 +11,39 @@ Helper tool for easily backing up ZFS datasets to external hard drives using `zf
 
 `zfs-drive-backup` automates backing up local ZFS datasets to external hard drives:
 
-- Mounts the target external backup drive/pool.
-- Discovers configured directories and ZFS datasets to back up.
-- Replicates snapshots to the external drive using `zfs send` / `zfs receive`.
-- Configurable via a simple user configuration file.
+- Reads `~/.config/zfs-drive-backup/config.json` (via `directories`) to determine which ZFS datasets and external backup pools to use.
+- Discovers and mounts the target external backup pool via `zpool list` / `sudo zpool import -l <pool>` (built with [`clapback`](https://crates.io/crates/clapback)).
+- Replicates snapshots to `<backup_pool>/<machine_name>/<dataset_path>` using `sudo zfs send -R [-I @<common_snap>] <source>@<latest_snap> | sudo zfs receive -F -u <target>`.
+- Optionally exports the backup pool at the end when `--export` is specified (`sudo zpool export <pool>`).
+
+## Configuration
+
+Create `~/.config/zfs-drive-backup/config.json`:
+
+```json
+{
+  "datasets": ["tuxedo/home", "tuxedo/var"],
+  "pools": ["backup-usb"],
+  "machine_name": "tuxedo"
+}
+```
+
+- `datasets`: List of local ZFS datasets to back up. The source pool prefix is stripped and mapped under `<backup_pool>/<machine_name>/<dataset_path>` (e.g. `tuxedo/home` -> `backup-usb/tuxedo/home`).
+- `pools`: Candidate external ZFS backup pool names to check or import.
+- `machine_name` (optional): Override for the machine dataset prefix; defaults to the system `hostname`.
+
+## Usage
+
+```bash
+# Run backup using ~/.config/zfs-drive-backup/config.json
+zfs-drive-backup
+
+# Run backup and export the external ZFS pool when finished
+zfs-drive-backup --export
+
+# Use a custom configuration file path
+zfs-drive-backup --config /path/to/config.json --export
+```
 
 ## Development
 

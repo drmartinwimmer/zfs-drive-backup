@@ -1,4 +1,9 @@
+use crate::backup::{
+    BackupError, DatasetReplicationReport, ReplicationKind, replicate_all_datasets_with_runner,
+};
+use crate::command::{ClapbackRunner, CommandRunner};
 use crate::config::{BackupConfig, ConfigError};
+use crate::pool::{PoolError, discover_and_mount_pool_with_runner, export_pool_with_runner};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -9,6 +14,52 @@ pub enum CliError {
     /// Configuration loading or validation error.
     #[error(transparent)]
     Config(#[from] ConfigError),
+
+    /// Pool discovery, import, or export error.
+    #[error(transparent)]
+    Pool(#[from] PoolError),
+
+    /// Dataset snapshot replication error.
+    #[error(transparent)]
+    Backup(#[from] BackupError),
+}
+
+/// Summary of a completed backup run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackupSummary {
+    backup_pool: String,
+    datasets: Vec<DatasetReplicationReport>,
+    exported: bool,
+}
+
+impl BackupSummary {
+    /// Creates a new [`BackupSummary`].
+    #[must_use]
+    fn new(backup_pool: String, datasets: Vec<DatasetReplicationReport>, exported: bool) -> Self {
+        Self {
+            backup_pool,
+            datasets,
+            exported,
+        }
+    }
+
+    /// Returns the name of the external backup pool used.
+    #[must_use]
+    pub fn backup_pool(&self) -> &str {
+        &self.backup_pool
+    }
+
+    /// Returns the per-dataset replication reports.
+    #[must_use]
+    pub fn datasets(&self) -> &[DatasetReplicationReport] {
+        &self.datasets
+    }
+
+    /// Returns `true` if the backup pool was exported at the end of the run.
+    #[must_use]
+    pub fn exported(&self) -> bool {
+        self.exported
+    }
 }
 
 /// Helper tool for easily backing up ZFS datasets to external hard drives using zfs send
@@ -51,9 +102,59 @@ impl Cli {
         }
     }
 
+    pub(crate) fn run_with_runner<R: CommandRunner>(
+        &self,
+        runner: &R,
+    ) -> Result<BackupSummary, CliError> {
+        let config = self.load_config()?;
+        let backup_pool = discover_and_mount_pool_with_runner(runner, config.pools())?;
+        let datasets = replicate_all_datasets_with_runner(runner, &config, &backup_pool)?;
+
+        if self.export {
+            export_pool_with_runner(runner, &backup_pool)?;
+        }
+
+        Ok(BackupSummary::new(backup_pool, datasets, self.export))
+    }
+
     /// Executes the CLI workflow.
     pub fn run(self) -> Result<(), CliError> {
-        let _config = self.load_config()?;
+        let summary = self.run_with_runner(&ClapbackRunner::new())?;
+        for report in summary.datasets() {
+            match report.kind() {
+                ReplicationKind::Full { to_snapshot } => {
+                    println!(
+                        "Backed up {} -> {} (full replication @{})",
+                        report.source_dataset(),
+                        report.target_dataset(),
+                        to_snapshot
+                    );
+                }
+                ReplicationKind::Incremental {
+                    from_snapshot,
+                    to_snapshot,
+                } => {
+                    println!(
+                        "Backed up {} -> {} (incremental @{} -> @{})",
+                        report.source_dataset(),
+                        report.target_dataset(),
+                        from_snapshot,
+                        to_snapshot
+                    );
+                }
+                ReplicationKind::UpToDate { latest_snapshot } => {
+                    println!(
+                        "Skipped {} -> {} (already up to date at @{})",
+                        report.source_dataset(),
+                        report.target_dataset(),
+                        latest_snapshot
+                    );
+                }
+            }
+        }
+        if summary.exported() {
+            println!("Exported backup pool '{}'.", summary.backup_pool());
+        }
         Ok(())
     }
 }
@@ -61,9 +162,76 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clapback::{Command, CommandError, CommandExt};
     use googletest::prelude::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::error::Error as StdError;
     use std::io::Write;
+    use std::result::Result as StdResult;
     use tempfile::NamedTempFile;
+
+    #[derive(Default)]
+    struct WorkflowRunner {
+        recorded: RefCell<Vec<String>>,
+        stdout_map: HashMap<String, StdResult<String, String>>,
+    }
+
+    impl WorkflowRunner {
+        fn new(
+            entries: impl IntoIterator<Item = (&'static str, StdResult<&'static str, &'static str>)>,
+        ) -> Self {
+            let stdout_map = entries
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        k.to_owned(),
+                        v.map(ToOwned::to_owned).map_err(ToOwned::to_owned),
+                    )
+                })
+                .collect();
+            Self {
+                recorded: RefCell::new(Vec::new()),
+                stdout_map,
+            }
+        }
+
+        fn recorded_commands(&self) -> Vec<String> {
+            self.recorded.borrow().clone()
+        }
+    }
+
+    impl CommandRunner for WorkflowRunner {
+        fn stdout_text<C: Command>(&self, cmd: &C) -> StdResult<String, CommandError> {
+            let rendered = cmd.display().to_string();
+            self.recorded.borrow_mut().push(rendered.clone());
+            match self.stdout_map.get(&rendered) {
+                Some(Ok(out)) => Ok(out.clone()),
+                Some(Err(msg)) => Err(CommandError::ProgramNotFound(msg.clone())),
+                None => Err(CommandError::ProgramNotFound(format!(
+                    "unmocked command: {rendered}"
+                ))),
+            }
+        }
+
+        fn run<C: Command>(&self, cmd: &C) -> StdResult<(), CommandError> {
+            self.recorded.borrow_mut().push(cmd.display().to_string());
+            Ok(())
+        }
+
+        fn run_piped<S: Command, R: Command>(
+            &self,
+            sender: &S,
+            receiver: &R,
+        ) -> StdResult<(), CommandError> {
+            self.recorded.borrow_mut().push(format!(
+                "{} | {}",
+                sender.display(),
+                receiver.display()
+            ));
+            Ok(())
+        }
+    }
 
     #[googletest::test]
     fn parse_cli_defaults() -> Result<()> {
@@ -88,7 +256,7 @@ mod tests {
     }
 
     #[googletest::test]
-    fn load_config_reads_custom_path() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    fn load_config_reads_custom_path() -> StdResult<(), Box<dyn StdError>> {
         let mut temp = NamedTempFile::new()?;
         writeln!(
             temp,
@@ -98,7 +266,100 @@ mod tests {
         let config = cli.load_config()?;
         expect_that!(config.datasets(), elements_are![eq("tuxedo/home")]);
         expect_that!(config.pools(), elements_are![eq("backup")]);
-        expect_that!(cli.run(), ok(anything()));
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn run_with_runner_discovers_pool_replicates_and_exports_when_flag_is_set()
+    -> StdResult<(), Box<dyn StdError>> {
+        let mut temp = NamedTempFile::new()?;
+        writeln!(
+            temp,
+            r#"{{"datasets": ["tuxedo/home"], "pools": ["backup-usb"]}}"#
+        )?;
+
+        let runner = WorkflowRunner::new([
+            ("zpool list -H -o name", Ok("tuxedo\n")),
+            ("sudo zpool import", Ok("   pool: backup-usb\n")),
+            ("hostname", Ok("tuxedo\n")),
+            (
+                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
+                Ok("tuxedo/home@snap1\ntuxedo/home@snap2\n"),
+            ),
+            ("zfs list -H -o name backup-usb/tuxedo", Err("not found")),
+            (
+                "zfs list -H -o name backup-usb/tuxedo/home",
+                Err("not found"),
+            ),
+        ]);
+
+        let cli = Cli::new(Some(temp.path().to_path_buf()), true);
+        let summary = cli.run_with_runner(&runner)?;
+        expect_that!(summary.backup_pool(), eq("backup-usb"));
+        expect_that!(summary.exported(), is_true());
+        expect_that!(summary.datasets().len(), eq(1));
+        expect_that!(
+            runner.recorded_commands(),
+            elements_are![
+                eq("zpool list -H -o name"),
+                eq("sudo zpool import"),
+                eq("sudo zpool import -l backup-usb"),
+                eq("hostname"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home"),
+                eq("zfs list -H -o name backup-usb/tuxedo"),
+                eq("sudo zfs create -p -o mountpoint=none backup-usb/tuxedo"),
+                eq("zfs list -H -o name backup-usb/tuxedo/home"),
+                eq(
+                    "sudo zfs send -R tuxedo/home@snap2 | sudo zfs receive -F -u backup-usb/tuxedo/home"
+                ),
+                eq("sudo zpool export backup-usb")
+            ]
+        );
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn run_with_runner_omits_export_when_flag_is_false() -> StdResult<(), Box<dyn StdError>> {
+        let mut temp = NamedTempFile::new()?;
+        writeln!(
+            temp,
+            r#"{{"datasets": ["tuxedo/home"], "pools": ["backup-usb"], "machine_name": "tuxedo"}}"#
+        )?;
+
+        let runner = WorkflowRunner::new([
+            ("zpool list -H -o name", Ok("tuxedo\nbackup-usb\n")),
+            (
+                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
+                Ok("tuxedo/home@snap1\n"),
+            ),
+            (
+                "zfs list -H -o name backup-usb/tuxedo",
+                Ok("backup-usb/tuxedo"),
+            ),
+            (
+                "zfs list -H -o name backup-usb/tuxedo/home",
+                Ok("backup-usb/tuxedo/home"),
+            ),
+            (
+                "zfs list -H -o name -t snapshot -s creation -d 1 backup-usb/tuxedo/home",
+                Ok("backup-usb/tuxedo/home@snap1\n"),
+            ),
+        ]);
+
+        let cli = Cli::new(Some(temp.path().to_path_buf()), false);
+        let summary = cli.run_with_runner(&runner)?;
+        expect_that!(summary.backup_pool(), eq("backup-usb"));
+        expect_that!(summary.exported(), is_false());
+        expect_that!(
+            runner.recorded_commands(),
+            elements_are![
+                eq("zpool list -H -o name"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home"),
+                eq("zfs list -H -o name backup-usb/tuxedo"),
+                eq("zfs list -H -o name backup-usb/tuxedo/home"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 backup-usb/tuxedo/home")
+            ]
+        );
         Ok(())
     }
 }
