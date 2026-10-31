@@ -22,15 +22,66 @@ Create `~/.config/zfs-drive-backup/config.json`:
 
 ```json
 {
-  "datasets": ["tuxedo/home", "tuxedo/var"],
+  "datasets": ["rpool/home", "rpool/var"],
   "pools": ["backup-usb"],
-  "machine_name": "tuxedo"
+  "machine_name": "workstation"
 }
 ```
 
-- `datasets`: List of local ZFS datasets to back up. The source pool prefix is stripped and mapped under `<backup_pool>/<machine_name>/<dataset_path>` (e.g. `tuxedo/home` -> `backup-usb/tuxedo/home`).
+- `datasets`: List of local ZFS datasets to back up. The source pool prefix is stripped and mapped under `<backup_pool>/<machine_name>/<dataset_path>` (e.g. `rpool/home` -> `backup-usb/workstation/home`).
 - `pools`: Candidate external ZFS backup pool names to check or import.
 - `machine_name` (optional): Override for the machine dataset prefix; defaults to the system `hostname`.
+
+## Nix & Home Manager Installation
+
+Add `zfs-drive-backup` to your flake `inputs`:
+
+```nix
+{
+  inputs = {
+    zfs-drive-backup = {
+      url = "github:drmartinwimmer/zfs-drive-backup";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+}
+```
+
+### Home Manager Module
+
+Import `inputs.zfs-drive-backup.homeManagerModules.default` and configure `programs.zfs-drive-backup`:
+
+```nix
+{ inputs, ... }:
+{
+  imports = [
+    inputs.zfs-drive-backup.homeManagerModules.default
+  ];
+
+  programs.zfs-drive-backup = {
+    enable = true;
+    settings = {
+      datasets = [
+        "rpool/home"
+        "rpool/var"
+      ];
+      pools = [ "backup-usb" ];
+    };
+  };
+}
+```
+
+### Nixpkgs Overlay
+
+You can also expose `pkgs.zfs-drive-backup` via the flake overlay:
+
+```nix
+{ inputs, pkgs, ... }:
+{
+  nixpkgs.overlays = [ inputs.zfs-drive-backup.overlays.default ];
+  environment.systemPackages = [ pkgs.zfs-drive-backup ];
+}
+```
 
 ## Usage
 

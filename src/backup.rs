@@ -338,43 +338,43 @@ mod tests {
     #[googletest::test]
     fn target_dataset_strips_source_pool_prefix() {
         expect_that!(
-            target_dataset_for("backup", "tuxedo", "tuxedo/home"),
-            eq("backup/tuxedo/home")
+            target_dataset_for("backup", "workstation", "rpool/home"),
+            eq("backup/workstation/home")
         );
         expect_that!(
-            target_dataset_for("backup", "tuxedo", "rpool/var/lib"),
-            eq("backup/tuxedo/var/lib")
+            target_dataset_for("backup", "workstation", "rpool/var/lib"),
+            eq("backup/workstation/var/lib")
         );
         expect_that!(
-            target_dataset_for("backup", "tuxedo", "tuxedo"),
-            eq("backup/tuxedo")
+            target_dataset_for("backup", "workstation", "rpool"),
+            eq("backup/workstation")
         );
     }
 
     #[googletest::test]
     fn resolve_machine_name_prefers_config_and_falls_back_to_hostname()
     -> StdResult<(), Box<dyn StdError>> {
-        let runner = ScriptedRunner::new([("hostname", Ok("nano-host\n"))]);
+        let runner = ScriptedRunner::new([("hostname", Ok("laptop-host\n"))]);
 
         let with_override = BackupConfig::new(
-            vec!["tuxedo/home".to_owned()],
+            vec!["rpool/home".to_owned()],
             vec!["backup".to_owned()],
-            Some("tuxedo".to_owned()),
+            Some("workstation".to_owned()),
         )?;
         expect_that!(
             resolve_machine_name_with_runner(&runner, &with_override)?,
-            eq("tuxedo")
+            eq("workstation")
         );
         expect_that!(runner.recorded_commands().is_empty(), is_true());
 
         let without_override = BackupConfig::new(
-            vec!["nano/home".to_owned()],
+            vec!["rpool/home".to_owned()],
             vec!["backup".to_owned()],
             None,
         )?;
         expect_that!(
             resolve_machine_name_with_runner(&runner, &without_override)?,
-            eq("nano-host")
+            eq("laptop-host")
         );
         expect_that!(runner.recorded_commands(), elements_are![eq("hostname")]);
         Ok(())
@@ -384,16 +384,20 @@ mod tests {
     fn replicate_dataset_performs_full_send_when_target_does_not_exist() -> Result<()> {
         let runner = ScriptedRunner::new([
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
-                Ok("tuxedo/home@snap1\ntuxedo/home@snap2\n"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
+                Ok("rpool/home@snap1\nrpool/home@snap2\n"),
             ),
-            ("zfs list -H -o name backup/tuxedo", Err("not found")),
-            ("zfs list -H -o name backup/tuxedo/home", Err("not found")),
+            ("zfs list -H -o name backup/workstation", Err("not found")),
+            (
+                "zfs list -H -o name backup/workstation/home",
+                Err("not found"),
+            ),
         ]);
 
-        let report = replicate_dataset_with_runner(&runner, "tuxedo/home", "backup/tuxedo/home")?;
-        verify_that!(report.source_dataset(), eq("tuxedo/home"))?;
-        verify_that!(report.target_dataset(), eq("backup/tuxedo/home"))?;
+        let report =
+            replicate_dataset_with_runner(&runner, "rpool/home", "backup/workstation/home")?;
+        verify_that!(report.source_dataset(), eq("rpool/home"))?;
+        verify_that!(report.target_dataset(), eq("backup/workstation/home"))?;
         verify_that!(
             report.kind(),
             eq(&ReplicationKind::Full {
@@ -403,12 +407,12 @@ mod tests {
         verify_that!(
             runner.recorded_commands(),
             elements_are![
-                eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home"),
-                eq("zfs list -H -o name backup/tuxedo"),
-                eq("sudo zfs create -p -o mountpoint=none backup/tuxedo"),
-                eq("zfs list -H -o name backup/tuxedo/home"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 rpool/home"),
+                eq("zfs list -H -o name backup/workstation"),
+                eq("sudo zfs create -p -o mountpoint=none backup/workstation"),
+                eq("zfs list -H -o name backup/workstation/home"),
                 eq(
-                    "sudo zfs send -R tuxedo/home@snap2 | sudo zfs receive -F -u backup/tuxedo/home"
+                    "sudo zfs send -R rpool/home@snap2 | sudo zfs receive -F -u backup/workstation/home"
                 )
             ]
         )
@@ -418,21 +422,25 @@ mod tests {
     fn replicate_dataset_performs_incremental_send_when_common_snapshot_exists() -> Result<()> {
         let runner = ScriptedRunner::new([
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
-                Ok("tuxedo/home@snap1\ntuxedo/home@snap2\ntuxedo/home@snap3\n"),
-            ),
-            ("zfs list -H -o name backup/tuxedo", Ok("backup/tuxedo")),
-            (
-                "zfs list -H -o name backup/tuxedo/home",
-                Ok("backup/tuxedo/home"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
+                Ok("rpool/home@snap1\nrpool/home@snap2\nrpool/home@snap3\n"),
             ),
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 backup/tuxedo/home",
-                Ok("backup/tuxedo/home@snap1\nbackup/tuxedo/home@snap2\n"),
+                "zfs list -H -o name backup/workstation",
+                Ok("backup/workstation"),
+            ),
+            (
+                "zfs list -H -o name backup/workstation/home",
+                Ok("backup/workstation/home"),
+            ),
+            (
+                "zfs list -H -o name -t snapshot -s creation -d 1 backup/workstation/home",
+                Ok("backup/workstation/home@snap1\nbackup/workstation/home@snap2\n"),
             ),
         ]);
 
-        let report = replicate_dataset_with_runner(&runner, "tuxedo/home", "backup/tuxedo/home")?;
+        let report =
+            replicate_dataset_with_runner(&runner, "rpool/home", "backup/workstation/home")?;
         verify_that!(
             report.kind(),
             eq(&ReplicationKind::Incremental {
@@ -443,12 +451,12 @@ mod tests {
         verify_that!(
             runner.recorded_commands(),
             elements_are![
-                eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home"),
-                eq("zfs list -H -o name backup/tuxedo"),
-                eq("zfs list -H -o name backup/tuxedo/home"),
-                eq("zfs list -H -o name -t snapshot -s creation -d 1 backup/tuxedo/home"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 rpool/home"),
+                eq("zfs list -H -o name backup/workstation"),
+                eq("zfs list -H -o name backup/workstation/home"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 backup/workstation/home"),
                 eq(
-                    "sudo zfs send -R -I @snap2 tuxedo/home@snap3 | sudo zfs receive -F -u backup/tuxedo/home"
+                    "sudo zfs send -R -I @snap2 rpool/home@snap3 | sudo zfs receive -F -u backup/workstation/home"
                 )
             ]
         )
@@ -458,21 +466,25 @@ mod tests {
     fn replicate_dataset_skips_send_when_target_already_has_latest_snapshot() -> Result<()> {
         let runner = ScriptedRunner::new([
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
-                Ok("tuxedo/home@snap1\ntuxedo/home@snap2\n"),
-            ),
-            ("zfs list -H -o name backup/tuxedo", Ok("backup/tuxedo")),
-            (
-                "zfs list -H -o name backup/tuxedo/home",
-                Ok("backup/tuxedo/home"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
+                Ok("rpool/home@snap1\nrpool/home@snap2\n"),
             ),
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 backup/tuxedo/home",
-                Ok("backup/tuxedo/home@snap1\nbackup/tuxedo/home@snap2\n"),
+                "zfs list -H -o name backup/workstation",
+                Ok("backup/workstation"),
+            ),
+            (
+                "zfs list -H -o name backup/workstation/home",
+                Ok("backup/workstation/home"),
+            ),
+            (
+                "zfs list -H -o name -t snapshot -s creation -d 1 backup/workstation/home",
+                Ok("backup/workstation/home@snap1\nbackup/workstation/home@snap2\n"),
             ),
         ]);
 
-        let report = replicate_dataset_with_runner(&runner, "tuxedo/home", "backup/tuxedo/home")?;
+        let report =
+            replicate_dataset_with_runner(&runner, "rpool/home", "backup/workstation/home")?;
         verify_that!(
             report.kind(),
             eq(&ReplicationKind::UpToDate {
@@ -484,10 +496,11 @@ mod tests {
     #[googletest::test]
     fn replicate_dataset_errors_when_source_has_no_snapshots_or_no_common_snapshot() {
         let empty_runner = ScriptedRunner::new([(
-            "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
+            "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
             Ok(""),
         )]);
-        let res = replicate_dataset_with_runner(&empty_runner, "tuxedo/home", "backup/tuxedo/home");
+        let res =
+            replicate_dataset_with_runner(&empty_runner, "rpool/home", "backup/workstation/home");
         expect_that!(
             res,
             err(matches_pattern!(BackupError::NoSnapshotsFound { .. }))
@@ -495,21 +508,27 @@ mod tests {
 
         let disjoint_runner = ScriptedRunner::new([
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
-                Ok("tuxedo/home@new_snap\n"),
-            ),
-            ("zfs list -H -o name backup/tuxedo", Ok("backup/tuxedo")),
-            (
-                "zfs list -H -o name backup/tuxedo/home",
-                Ok("backup/tuxedo/home"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
+                Ok("rpool/home@new_snap\n"),
             ),
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 backup/tuxedo/home",
-                Ok("backup/tuxedo/home@unrelated_snap\n"),
+                "zfs list -H -o name backup/workstation",
+                Ok("backup/workstation"),
+            ),
+            (
+                "zfs list -H -o name backup/workstation/home",
+                Ok("backup/workstation/home"),
+            ),
+            (
+                "zfs list -H -o name -t snapshot -s creation -d 1 backup/workstation/home",
+                Ok("backup/workstation/home@unrelated_snap\n"),
             ),
         ]);
-        let disjoint_res =
-            replicate_dataset_with_runner(&disjoint_runner, "tuxedo/home", "backup/tuxedo/home");
+        let disjoint_res = replicate_dataset_with_runner(
+            &disjoint_runner,
+            "rpool/home",
+            "backup/workstation/home",
+        );
         expect_that!(
             disjoint_res,
             err(matches_pattern!(BackupError::NoCommonSnapshot { .. }))

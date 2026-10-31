@@ -390,28 +390,28 @@ mod tests {
     #[googletest::test]
     fn zfs_commands_serialize_expected_cli_strings() {
         expect_that!(
-            ZfsCommand::list_dataset("backup/tuxedo/home").to_string(),
-            eq("zfs list -H -o name backup/tuxedo/home")
+            ZfsCommand::list_dataset("backup/workstation/home").to_string(),
+            eq("zfs list -H -o name backup/workstation/home")
         );
         expect_that!(
-            ZfsCommand::list_snapshots("tuxedo/home").to_string(),
-            eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home")
+            ZfsCommand::list_snapshots("rpool/home").to_string(),
+            eq("zfs list -H -o name -t snapshot -s creation -d 1 rpool/home")
         );
         expect_that!(
-            ZfsCommand::create_container("backup/tuxedo").to_string(),
-            eq("sudo zfs create -p -o mountpoint=none backup/tuxedo")
+            ZfsCommand::create_container("backup/workstation").to_string(),
+            eq("sudo zfs create -p -o mountpoint=none backup/workstation")
         );
         expect_that!(
-            ZfsCommand::send_full("tuxedo/home@snap2").to_string(),
-            eq("sudo zfs send -R tuxedo/home@snap2")
+            ZfsCommand::send_full("rpool/home@snap2").to_string(),
+            eq("sudo zfs send -R rpool/home@snap2")
         );
         expect_that!(
-            ZfsCommand::send_incremental("@snap1", "tuxedo/home@snap2").to_string(),
-            eq("sudo zfs send -R -I @snap1 tuxedo/home@snap2")
+            ZfsCommand::send_incremental("@snap1", "rpool/home@snap2").to_string(),
+            eq("sudo zfs send -R -I @snap1 rpool/home@snap2")
         );
         expect_that!(
-            ZfsCommand::receive("backup/tuxedo/home").to_string(),
-            eq("sudo zfs receive -F -u backup/tuxedo/home")
+            ZfsCommand::receive("backup/workstation/home").to_string(),
+            eq("sudo zfs receive -F -u backup/workstation/home")
         );
         expect_that!(HostnameCommand::new().to_string(), eq("hostname"));
     }
