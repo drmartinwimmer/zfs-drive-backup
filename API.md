@@ -8,16 +8,21 @@
 
 - `pub struct BackupConfig { /* no public fields */ }` — _User configuration specifying datasets to back up and candidate external backup pools._
 - `pub struct Cli { /* no public fields */ }` — _Helper tool for easily backing up ZFS datasets to external hard drives using zfs send_
+- `pub struct DatasetReplicationReport { /* no public fields */ }` — _Summary of replicating a single configured dataset to the backup pool._
 
 ### Enums
 
+- `pub enum BackupError { Command(CommandError), InvalidMachineName(String), NoSnapshotsFound { dataset: String }, NoCommonSnapshot { source_dataset: String, target_dataset: String } }` — _Errors that can occur during ZFS dataset replication._
 - `pub enum CliError { Config(ConfigError) }` — _Errors that can occur while executing the CLI._
 - `pub enum ConfigError { NoConfigDir, Io { path: PathBuf, source: io :: Error }, Json(serde_json :: Error), EmptyDatasets, InvalidDataset(String), EmptyPools, InvalidPool(String), InvalidMachineName(String) }` — _Errors that can occur when locating, reading, or validating the backup configuration._
 - `pub enum PoolError { Command(CommandError), NoBackupPoolFound { configured: Vec < String >, imported: Vec < String >, importable: Vec < String > } }` — _Errors that can occur when discovering, importing, or exporting a ZFS backup pool._
+- `pub enum ReplicationKind { Full { to_snapshot: String }, Incremental { from_snapshot: String, to_snapshot: String }, UpToDate { latest_snapshot: String } }` — _Describes the replication action performed for a single dataset._
 
 ### Functions
 
 - `pub fn discover_and_mount_pool(configured_pools: & [String]) -> Result < String , PoolError >` — _Discovers a configured backup pool and imports/mounts it if not already imported._
+- `pub fn replicate_all_datasets(config: & BackupConfig, backup_pool: & str) -> Result < Vec < DatasetReplicationReport > , BackupError >` — _Replicates all datasets configured in `config` to `backup_pool` under the resolved machine name._
+- `pub fn replicate_dataset(source_dataset: & str, target_dataset: & str) -> Result < DatasetReplicationReport , BackupError >` — _Replicates a single `source_dataset` to `target_dataset` using `zfs send` and `zfs receive`._
 
 ### Methods
 
@@ -33,6 +38,9 @@
 - `pub fn Cli::load_config(& self) -> Result < BackupConfig , ConfigError >` — _Loads and validates the [`BackupConfig`] from either `--config` or the default user config directory._
 - `pub fn Cli::new(config: Option < PathBuf >, export: bool) -> Self` — _Constructs a new [`Cli`] instance with the given options._
 - `pub fn Cli::run(self) -> Result < () , CliError >` — _Executes the CLI workflow._
+- `pub fn DatasetReplicationReport::kind(& self) -> & ReplicationKind` — _Returns the [`ReplicationKind`] performed for this dataset._
+- `pub fn DatasetReplicationReport::source_dataset(& self) -> & str` — _Returns the source dataset name._
+- `pub fn DatasetReplicationReport::target_dataset(& self) -> & str` — _Returns the target dataset name on the backup pool._
 
 ## 2. CLI API
 
