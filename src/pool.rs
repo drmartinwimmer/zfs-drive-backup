@@ -185,7 +185,7 @@ mod tests {
 
     #[googletest::test]
     fn discover_and_mount_pool_returns_already_imported_pool_without_importing() -> Result<()> {
-        let runner = MockRunner::with_stdout_responses(["tuxedo\nbackup-usb\n"]);
+        let runner = MockRunner::with_stdout_responses(["rpool\nbackup-usb\n"]);
         let configured = vec!["offsite".to_owned(), "backup-usb".to_owned()];
 
         let pool = discover_and_mount_pool_with_runner(&runner, &configured)?;
@@ -203,7 +203,7 @@ mod tests {
      id: 12345
   state: ONLINE
 ";
-        let runner = MockRunner::with_stdout_responses(["tuxedo\n", import_output]);
+        let runner = MockRunner::with_stdout_responses(["rpool\n", import_output]);
         let configured = vec!["offsite".to_owned(), "backup-usb".to_owned()];
 
         let pool = discover_and_mount_pool_with_runner(&runner, &configured)?;
@@ -220,8 +220,7 @@ mod tests {
 
     #[googletest::test]
     fn discover_and_mount_pool_errors_when_no_configured_pool_is_available() {
-        let runner =
-            MockRunner::with_stdout_responses(["tuxedo\n", "no pools available to import"]);
+        let runner = MockRunner::with_stdout_responses(["rpool\n", "no pools available to import"]);
         let configured = vec!["backup-usb".to_owned()];
 
         let res = discover_and_mount_pool_with_runner(&runner, &configured);

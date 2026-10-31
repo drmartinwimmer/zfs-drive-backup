@@ -191,32 +191,32 @@ mod tests {
     #[googletest::test]
     fn parse_valid_config_with_pools_and_machine_name() -> Result<()> {
         let json = r#"{
-            "datasets": ["tuxedo/home", "tuxedo/var"],
+            "datasets": ["rpool/home", "rpool/var"],
             "pools": ["backup-usb", "offsite-pool"],
-            "machine_name": "tuxedo"
+            "machine_name": "workstation"
         }"#;
         let config = BackupConfig::from_json_str(json)?;
         verify_that!(
             config.datasets(),
-            elements_are![eq("tuxedo/home"), eq("tuxedo/var")]
+            elements_are![eq("rpool/home"), eq("rpool/var")]
         )?;
         verify_that!(
             config.pools(),
             elements_are![eq("backup-usb"), eq("offsite-pool")]
         )?;
-        verify_that!(config.machine_name(), some(eq("tuxedo")))
+        verify_that!(config.machine_name(), some(eq("workstation")))
     }
 
     #[googletest::test]
     fn parse_valid_config_without_machine_name() -> Result<()> {
         let json = r#"{
-            "datasets": ["nano/root", "nano/home"],
+            "datasets": ["rpool/root", "rpool/home"],
             "pools": ["extbackup"]
         }"#;
         let config = BackupConfig::from_json_str(json)?;
         verify_that!(
             config.datasets(),
-            elements_are![eq("nano/root"), eq("nano/home")]
+            elements_are![eq("rpool/root"), eq("rpool/home")]
         )?;
         verify_that!(config.pools(), elements_are![eq("extbackup")])?;
         verify_that!(config.machine_name(), none())
@@ -227,10 +227,10 @@ mod tests {
         let mut temp = NamedTempFile::new()?;
         writeln!(
             temp,
-            r#"{{"datasets": ["tuxedo/home"], "pools": ["backup"]}}"#
+            r#"{{"datasets": ["rpool/home"], "pools": ["backup"]}}"#
         )?;
         let config = BackupConfig::load_from_path(temp.path())?;
-        expect_that!(config.datasets(), elements_are![eq("tuxedo/home")]);
+        expect_that!(config.datasets(), elements_are![eq("rpool/home")]);
         expect_that!(config.pools(), elements_are![eq("backup")]);
         Ok(())
     }
@@ -249,19 +249,13 @@ mod tests {
             err(matches_pattern!(ConfigError::EmptyDatasets))
         );
 
-        let empty_pools = BackupConfig::new(vec!["tuxedo/home".to_owned()], vec![], None);
+        let empty_pools = BackupConfig::new(vec!["rpool/home".to_owned()], vec![], None);
         expect_that!(empty_pools, err(matches_pattern!(ConfigError::EmptyPools)));
     }
 
     #[googletest::test]
     fn reject_invalid_dataset_pool_or_machine_names() {
-        for bad_dataset in [
-            "",
-            "tuxedo/home with space",
-            "/leading",
-            "trailing/",
-            "a//b",
-        ] {
+        for bad_dataset in ["", "rpool/home with space", "/leading", "trailing/", "a//b"] {
             let res = BackupConfig::new(
                 vec![bad_dataset.to_owned()],
                 vec!["backup".to_owned()],
@@ -272,7 +266,7 @@ mod tests {
 
         for bad_pool in ["", "pool/sub", "pool space"] {
             let res = BackupConfig::new(
-                vec!["tuxedo/home".to_owned()],
+                vec!["rpool/home".to_owned()],
                 vec![bad_pool.to_owned()],
                 None,
             );
@@ -281,7 +275,7 @@ mod tests {
 
         for bad_machine in ["", "machine/sub", "machine space"] {
             let res = BackupConfig::new(
-                vec!["tuxedo/home".to_owned()],
+                vec!["rpool/home".to_owned()],
                 vec!["backup".to_owned()],
                 Some(bad_machine.to_owned()),
             );

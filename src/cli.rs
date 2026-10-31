@@ -260,11 +260,11 @@ mod tests {
         let mut temp = NamedTempFile::new()?;
         writeln!(
             temp,
-            r#"{{"datasets": ["tuxedo/home"], "pools": ["backup"]}}"#
+            r#"{{"datasets": ["rpool/home"], "pools": ["backup"]}}"#
         )?;
         let cli = Cli::new(Some(temp.path().to_path_buf()), true);
         let config = cli.load_config()?;
-        expect_that!(config.datasets(), elements_are![eq("tuxedo/home")]);
+        expect_that!(config.datasets(), elements_are![eq("rpool/home")]);
         expect_that!(config.pools(), elements_are![eq("backup")]);
         Ok(())
     }
@@ -275,20 +275,23 @@ mod tests {
         let mut temp = NamedTempFile::new()?;
         writeln!(
             temp,
-            r#"{{"datasets": ["tuxedo/home"], "pools": ["backup-usb"]}}"#
+            r#"{{"datasets": ["rpool/home"], "pools": ["backup-usb"]}}"#
         )?;
 
         let runner = WorkflowRunner::new([
-            ("zpool list -H -o name", Ok("tuxedo\n")),
+            ("zpool list -H -o name", Ok("rpool\n")),
             ("sudo zpool import", Ok("   pool: backup-usb\n")),
-            ("hostname", Ok("tuxedo\n")),
+            ("hostname", Ok("workstation\n")),
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
-                Ok("tuxedo/home@snap1\ntuxedo/home@snap2\n"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
+                Ok("rpool/home@snap1\nrpool/home@snap2\n"),
             ),
-            ("zfs list -H -o name backup-usb/tuxedo", Err("not found")),
             (
-                "zfs list -H -o name backup-usb/tuxedo/home",
+                "zfs list -H -o name backup-usb/workstation",
+                Err("not found"),
+            ),
+            (
+                "zfs list -H -o name backup-usb/workstation/home",
                 Err("not found"),
             ),
         ]);
@@ -305,12 +308,12 @@ mod tests {
                 eq("sudo zpool import"),
                 eq("sudo zpool import -l backup-usb"),
                 eq("hostname"),
-                eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home"),
-                eq("zfs list -H -o name backup-usb/tuxedo"),
-                eq("sudo zfs create -p -o mountpoint=none backup-usb/tuxedo"),
-                eq("zfs list -H -o name backup-usb/tuxedo/home"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 rpool/home"),
+                eq("zfs list -H -o name backup-usb/workstation"),
+                eq("sudo zfs create -p -o mountpoint=none backup-usb/workstation"),
+                eq("zfs list -H -o name backup-usb/workstation/home"),
                 eq(
-                    "sudo zfs send -R tuxedo/home@snap2 | sudo zfs receive -F -u backup-usb/tuxedo/home"
+                    "sudo zfs send -R rpool/home@snap2 | sudo zfs receive -F -u backup-usb/workstation/home"
                 ),
                 eq("sudo zpool export backup-usb")
             ]
@@ -323,26 +326,26 @@ mod tests {
         let mut temp = NamedTempFile::new()?;
         writeln!(
             temp,
-            r#"{{"datasets": ["tuxedo/home"], "pools": ["backup-usb"], "machine_name": "tuxedo"}}"#
+            r#"{{"datasets": ["rpool/home"], "pools": ["backup-usb"], "machine_name": "workstation"}}"#
         )?;
 
         let runner = WorkflowRunner::new([
-            ("zpool list -H -o name", Ok("tuxedo\nbackup-usb\n")),
+            ("zpool list -H -o name", Ok("rpool\nbackup-usb\n")),
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home",
-                Ok("tuxedo/home@snap1\n"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 rpool/home",
+                Ok("rpool/home@snap1\n"),
             ),
             (
-                "zfs list -H -o name backup-usb/tuxedo",
-                Ok("backup-usb/tuxedo"),
+                "zfs list -H -o name backup-usb/workstation",
+                Ok("backup-usb/workstation"),
             ),
             (
-                "zfs list -H -o name backup-usb/tuxedo/home",
-                Ok("backup-usb/tuxedo/home"),
+                "zfs list -H -o name backup-usb/workstation/home",
+                Ok("backup-usb/workstation/home"),
             ),
             (
-                "zfs list -H -o name -t snapshot -s creation -d 1 backup-usb/tuxedo/home",
-                Ok("backup-usb/tuxedo/home@snap1\n"),
+                "zfs list -H -o name -t snapshot -s creation -d 1 backup-usb/workstation/home",
+                Ok("backup-usb/workstation/home@snap1\n"),
             ),
         ]);
 
@@ -354,10 +357,10 @@ mod tests {
             runner.recorded_commands(),
             elements_are![
                 eq("zpool list -H -o name"),
-                eq("zfs list -H -o name -t snapshot -s creation -d 1 tuxedo/home"),
-                eq("zfs list -H -o name backup-usb/tuxedo"),
-                eq("zfs list -H -o name backup-usb/tuxedo/home"),
-                eq("zfs list -H -o name -t snapshot -s creation -d 1 backup-usb/tuxedo/home")
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 rpool/home"),
+                eq("zfs list -H -o name backup-usb/workstation"),
+                eq("zfs list -H -o name backup-usb/workstation/home"),
+                eq("zfs list -H -o name -t snapshot -s creation -d 1 backup-usb/workstation/home")
             ]
         );
         Ok(())
