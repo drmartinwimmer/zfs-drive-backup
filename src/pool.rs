@@ -135,6 +135,19 @@ mod tests {
             self.recorded.borrow_mut().push(cmd.display().to_string());
             Ok(())
         }
+
+        fn run_piped<S: Command, R: Command>(
+            &self,
+            sender: &S,
+            receiver: &R,
+        ) -> Result<(), CommandError> {
+            self.recorded.borrow_mut().push(format!(
+                "{} | {}",
+                sender.display(),
+                receiver.display()
+            ));
+            Ok(())
+        }
     }
 
     #[googletest::test]
