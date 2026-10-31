@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.99"
+profile = "default"
+components = ["rustfmt", "clippy", "rust-analyzer", "rust-src"]
+targets = []

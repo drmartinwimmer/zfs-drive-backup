@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Code Formatting & Lints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install external check tools (cargo-audit, taplo)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,taplo-cli
+
+      - name: Install Purist
+        run: cargo install purist --locked
+
+      - name: Install api-manifest
+        run: cargo install api-manifest --locked
+
+      - name: Install Prettier
+        run: npm install -g prettier
+
+      - name: Check code formatting (Rust)
+        run: cargo fmt --check
+
+      - name: Check Clippy lints
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Purist AST linter
+        run: purist
+
+      - name: Check API manifest
+        run: api-manifest check
+
+      - name: Check TOML formatting (Taplo)
+        run: taplo fmt --check
+
+      - name: Check Markdown and JSON formatting (Prettier)
+        run: prettier --check "**/*.{md,json}"
+
+      - name: Run cargo security audit
+        run: cargo audit
+
+      - name: Verify package & metadata
+        run: |
+          cargo metadata --format-version 1 --no-deps > /dev/null
+          cargo publish --dry-run --workspace
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo test
+        run: cargo test --all-targets --all-features
+
+  msrv:
+    name: Minimum Supported Rust Version (MSRV)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Verify MSRV consistency across manifest and badges
+        id: msrv
+        run: |
+          MSRV=$(sed -nE 's/^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"([0-9]+\.[0-9]+(\.[0-9]+)?)"/\1/p' Cargo.toml | head -n 1)
+          if [ -z "$MSRV" ]; then
+            echo "Error: rust-version not found in Cargo.toml"
+            exit 1
+          fi
+          echo "Found rust-version: $MSRV"
+          MSRV_PREFIX=$(echo "$MSRV" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')
+
+          # Verify README badge
+          if ! grep -q "https://img.shields.io/badge/MSRV-${MSRV_PREFIX}%2B-" README.md; then
+            echo "Error: README.md MSRV badge does not match Cargo.toml rust-version ($MSRV_PREFIX+)"
+            exit 1
+          fi
+
+          echo "MSRV consistency check passed: $MSRV (badge: ${MSRV_PREFIX}+)"
+          echo "msrv=$MSRV" >> "$GITHUB_OUTPUT"
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.msrv }}
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check compilation with MSRV
+        run: cargo check --all-targets --all-features
+
+  nix:
+    name: Nix Flake Check & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Cache Nix builds
+        uses: DeterminateSystems/magic-nix-cache-action@v15
+
+      - name: Check Nix flake
+        run: nix flake check
+
+      - name: Build Nix package
+        run: nix build
